@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+env/
+
+# Database & Telemetry Data
+*.db
+*.db-wal
+*.db-shm
+
+# Build Artifacts & PyInstaller
+build/
+dist/
+*.spec
+*.log
+*.tmp
+debug_*.txt
+*.zip
+*.exe
+
+# OS Files
+.DS_Store
+Thumbs.db
