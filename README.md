@@ -17,6 +17,10 @@
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License" />
 </p>
 
+<p align="center">
+  <img src="app.png" alt="Mac RAM Advisor Dashboard Screenshot" width="850" />
+</p>
+
 ---
 
 ## Why Windows RAM ≠ Mac Unified Memory

@@ -21,7 +21,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupCalculationModal();
     setupResetModal();
     setupSecurityModal();
-    setupToggleAllTiers();
 
     // Initial data fetch
     fetchStatus();
@@ -29,10 +28,23 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchLive();
     fetchTimeline(selectedDays);
 
-    // 1-Second Continuous Live Loop
+    // Continuous Live Refresh Loop
+    let loopCycle = 0;
     liveInterval = setInterval(() => {
+        loopCycle++;
+        // 1-Second Continuous Live Telemetry & Status
         fetchStatus();
         fetchLive();
+
+        // 3-Second Automatic Analysis Refresh (sizing recommendation, RAM comparison, top apps)
+        if (loopCycle % 3 === 0) {
+            fetchAnalysis(selectedDays);
+        }
+
+        // 6-Second Automatic Timeline Chart Refresh
+        if (loopCycle % 6 === 0) {
+            fetchTimeline(selectedDays);
+        }
     }, 1000);
 });
 
@@ -390,7 +402,10 @@ async function fetchLive() {
 }
 
 // Fetch Sizing Analysis & Render Both Cards
+let isFetchingAnalysis = false;
 async function fetchAnalysis(days) {
+    if (isFetchingAnalysis) return;
+    isFetchingAnalysis = true;
     try {
         const res = await fetch(`/api/analysis?days=${days}`);
         const data = await res.json();
@@ -399,6 +414,7 @@ async function fetchAnalysis(days) {
 
         if (!rec || rec.status === 'insufficient_data') {
             document.getElementById('verdictHeroRam').textContent = "-- GB";
+            isFetchingAnalysis = false;
             return;
         }
 
@@ -464,6 +480,8 @@ async function fetchAnalysis(days) {
         }
     } catch (e) {
         console.error("Analysis fetch error", e);
+    } finally {
+        isFetchingAnalysis = false;
     }
 }
 
@@ -1007,7 +1025,7 @@ function getTierFitBreakdown(tierKey, t, v, recommendedRam, metrics) {
     }
 }
 
-// Render Merged Multi-Tier Comparison List (8GB, 16GB, 24GB, 32GB, 48GB)
+// Render Minimal Multi-Tier Comparison List (8GB, 16GB, 24GB, 32GB, 48GB)
 function renderMergedTiers(tiers, verdicts, recommendedRam, metrics) {
     const container = document.getElementById('tiersComparisonList');
     if (!container || !tiers) return;
@@ -1015,33 +1033,38 @@ function renderMergedTiers(tiers, verdicts, recommendedRam, metrics) {
     const tierConfigs = [
         {
             key: "8GB",
-            name: "8 GB Unified Memory",
-            modelDesc: "MacBook Air (Base)",
-            defaultDesc: "Severe SSD thrashing under your workload • 84–180 TBW wear exhausts SSD"
+            name: "8 GB",
+            modelDesc: "MacBook Air",
+            defaultDesc: "Severe SSD swap thrashing under your workload • High wear",
+            defaultWear: "45–112 TBW"
         },
         {
             key: "16GB",
-            name: "16 GB Unified Memory",
-            modelDesc: "MacBook Air / Pro (Standard)",
-            defaultDesc: "Frequent lag during multitasking • 19–48 TBW swap writes over 3 years"
+            name: "16 GB",
+            modelDesc: "MacBook Air / Pro",
+            defaultDesc: "Periodic lag and swap spikes during multitasking",
+            defaultWear: "18–40 TBW"
         },
         {
             key: "24GB",
-            name: "24 GB Unified Memory",
-            modelDesc: "MacBook Air / Pro (Upgraded)",
-            defaultDesc: "Smooth daily use via WKdm RAM compression • Negligible SSD wear (<7 TBW)"
+            name: "24 GB",
+            modelDesc: "MacBook Air / Pro",
+            defaultDesc: "Smooth everyday multitasking with light RAM compression",
+            defaultWear: "1.1–4.5 TBW"
         },
         {
             key: "32GB",
-            name: "32 GB / 36 GB Unified Memory",
-            modelDesc: "MacBook Pro (M-Pro)",
-            defaultDesc: "100% fluid zero-swap headroom • Zero SSD wear • 4–5 year lifespan"
+            name: "32 GB / 36 GB",
+            modelDesc: "MacBook Pro",
+            defaultDesc: "Zero swap headroom • Recommended sweet spot for 4–5 years",
+            defaultWear: "<0.5 TBW"
         },
         {
             key: "48GB",
-            name: "48 GB Unified Memory",
-            modelDesc: "MacBook Pro (M-Max / Studio)",
-            defaultDesc: "Maximum headroom for local AI models, 4K/8K timelines, and multi-VMs"
+            name: "48 GB",
+            modelDesc: "MacBook Pro / Studio",
+            defaultDesc: "Maximum headroom for heavy local AI models & multi-VMs",
+            defaultWear: "0 TBW"
         }
     ];
 
@@ -1049,7 +1072,6 @@ function renderMergedTiers(tiers, verdicts, recommendedRam, metrics) {
 
     tierConfigs.forEach(cfg => {
         const t = tiers[cfg.key] || {};
-        const v = (verdicts && (verdicts[cfg.key] || (cfg.key === "32GB" && verdicts["36GB"]))) ? (verdicts[cfg.key] || verdicts["36GB"]) : {};
         const isRec = recommendedRam.startsWith(cfg.key) || cfg.key === recommendedRam || (cfg.key === "32GB" && (recommendedRam.includes("32GB") || recommendedRam.includes("36GB")));
 
         const greenPct = t.green_pct || 0;
@@ -1057,157 +1079,50 @@ function renderMergedTiers(tiers, verdicts, recommendedRam, metrics) {
         const redPct = t.red_pct || 0;
         const swapProb = t.swap_probability !== undefined ? t.swap_probability : redPct;
 
-        const bd = getTierFitBreakdown(cfg.key, t, v, recommendedRam, metrics);
-        const statusClass = bd.status_class || (swapProb > 50 ? "deficit" : (swapProb > 10 ? "tight" : (swapProb > 1 ? "viable" : "optimal")));
-        const statusBadgeText = bd.swap_risk_text || `${bd.status_label || 'TIER'} (${swapProb.toFixed(0)}% SWAP RISK)`;
-        const pressureStatus = bd.pressure_status || (swapProb > 50 ? 'Continuous Red Pressure' : (swapProb > 10 ? 'Yellow Pressure Spikes' : (swapProb > 1 ? 'Nominal Green Pressure' : 'Permanent Green Headroom')));
+        // Single clean status badge
+        let statusPillHtml = '';
+        if (isRec) {
+            statusPillHtml = `<span class="tier-pill pill-best">★ Best Fit</span>`;
+        } else if (swapProb > 50 || redPct > 20) {
+            statusPillHtml = `<span class="tier-pill pill-danger">Critical Swap (${swapProb.toFixed(0)}%)</span>`;
+        } else if (swapProb > 10 || redPct > 5) {
+            statusPillHtml = `<span class="tier-pill pill-warning">Tight Fit (${swapProb.toFixed(0)}% swap)</span>`;
+        } else if (swapProb > 1) {
+            statusPillHtml = `<span class="tier-pill pill-viable">Viable (Smooth)</span>`;
+        } else {
+            statusPillHtml = `<span class="tier-pill pill-surplus">Enterprise Surplus</span>`;
+        }
 
-        let pressureColor = 'green';
-        if (pressureStatus.toLowerCase().includes('red')) pressureColor = 'red';
-        else if (pressureStatus.toLowerCase().includes('yellow') || pressureStatus.toLowerCase().includes('tight')) pressureColor = 'yellow';
-
-        // Suitability lists
-        const whySuitedList = (bd.why_suited && bd.why_suited.length > 0) ? bd.why_suited : [
-            "Single-focus everyday office tasks and web browsing with light background usage."
-        ];
-        const whyNotSuitedList = (bd.why_not_suited && bd.why_not_suited.length > 0) ? bd.why_not_suited : [
-            "Heavy multitasking, large container clusters, or concurrent pro applications."
-        ];
-
-        // 10 Comments
-        const comments = (bd.comments && bd.comments.length >= 10) ? bd.comments : [];
-
-        let commentsHtml = '';
-        comments.forEach((c, idx) => {
-            const numStr = String(c.id || (idx + 1)).padStart(2, '0');
-            const iconSvg = getCommentIcon(c.icon);
-            commentsHtml += `
-                <div class="comment-card">
-                    <div class="comment-card-top">
-                        <span class="comment-badge-tag">${c.category || 'FIT COMMENT'}</span>
-                        <span class="comment-card-num">#${numStr}</span>
-                    </div>
-                    <div class="comment-card-title">${iconSvg} <span>${c.title || c.type_name}</span></div>
-                    <div class="comment-card-text">${c.text || c.comment}</div>
-                </div>
-            `;
-        });
-
-        const suitedItemsHtml = whySuitedList.map(item => `<li>${item}</li>`).join('');
-        const notSuitedItemsHtml = whyNotSuitedList.map(item => `<li>${item}</li>`).join('');
-
-        // Expand recommended by default
-        const expandClass = isRec ? 'expanded' : '';
+        const wearText = (t.wear_info && t.wear_info.wear_tbw) ? t.wear_info.wear_tbw : cfg.defaultWear;
 
         html += `
-            <div class="tier-item-row ${isRec ? 'recommended' : ''} ${expandClass}" id="tierRow_${cfg.key}" data-tier="${cfg.key}">
-                <div class="tier-row-top" onclick="toggleTierDetails('${cfg.key}')">
+            <div class="tier-item-row ${isRec ? 'recommended' : ''}" id="tierRow_${cfg.key}">
+                <div class="tier-row-top">
                     <div class="tier-row-identity">
                         <span class="tier-row-ram">${cfg.name}</span>
-                        <span class="tier-row-usable">~${t.usable_app_gb || 0} GB for Apps</span>
-                        <span class="tier-pressure-pill ${pressureColor}">${pressureStatus}</span>
+                        <span class="tier-row-model">${cfg.modelDesc}</span>
+                        <span class="tier-row-usable">~${t.usable_app_gb || 0} GB for apps</span>
                     </div>
                     <div class="tier-row-badge-wrap">
-                        ${isRec ? '<span class="tier-best-fit-label">BEST FIT</span>' : ''}
-                        <span class="tier-badge-status ${statusClass}">${statusBadgeText}</span>
-                        <button type="button" class="tier-toggle-btn" onclick="event.stopPropagation(); toggleTierDetails('${cfg.key}')" title="Toggle 10 RAM fit comments">
-                            <span>10 Fit Comments</span>
-                            <svg class="tier-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                        </button>
+                        ${statusPillHtml}
                     </div>
                 </div>
 
                 <div class="tier-row-bar">
-                    <div class="t-seg green" style="width: ${greenPct}%;" title="Smooth: ${greenPct}%"></div>
+                    <div class="t-seg green" style="width: ${greenPct}%;" title="Headroom: ${greenPct}%"></div>
                     <div class="t-seg yellow" style="width: ${yellowPct}%;" title="Compression: ${yellowPct}%"></div>
                     <div class="t-seg red" style="width: ${redPct}%;" title="Swap: ${redPct}%"></div>
                 </div>
 
                 <div class="tier-row-desc">
-                    <span>${cfg.defaultDesc}</span>
-                    <span class="wear-note">${t.wear_info ? t.wear_info.wear_tbw || '' : ''}</span>
-                </div>
-
-                <!-- 10 Comments & Suitability Drawer -->
-                <div class="tier-comments-drawer">
-                    <div class="suitability-grid">
-                        <div class="suitability-card suited">
-                            <div class="suitability-head">
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                                <span>Why It Is Suited</span>
-                            </div>
-                            <ul class="suitability-items">
-                                ${suitedItemsHtml}
-                            </ul>
-                        </div>
-                        <div class="suitability-card not-suited">
-                            <div class="suitability-head">
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-                                <span>Why It Is NOT Suited</span>
-                            </div>
-                            <ul class="suitability-items">
-                                ${notSuitedItemsHtml}
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div class="tier-comments-heading">
-                        <span>10 In-Depth Fit Comments & Architecture Analysis</span>
-                        <span style="font-size: 10px; font-weight: 500; font-family: var(--font-mono); color: var(--muted-foreground);">10 EVALUATIONS</span>
-                    </div>
-
-                    <div class="comments-grid">
-                        ${commentsHtml}
-                    </div>
+                    <span class="tier-desc-text">${cfg.defaultDesc}</span>
+                    <span class="wear-note">${wearText}</span>
                 </div>
             </div>
         `;
     });
 
     container.innerHTML = html;
-    updateToggleAllButtonState();
-}
-
-// Toggle individual tier row details
-window.toggleTierDetails = function(tierKey) {
-    const row = document.getElementById(`tierRow_${tierKey}`);
-    if (row) {
-        row.classList.toggle('expanded');
-        updateToggleAllButtonState();
-    }
-};
-
-// Toggle all tiers expanded / collapsed
-function setupToggleAllTiers() {
-    const btn = document.getElementById('btnToggleAllTiers');
-    if (!btn) return;
-
-    btn.addEventListener('click', () => {
-        const rows = document.querySelectorAll('.tier-item-row');
-        const anyCollapsed = Array.from(rows).some(r => !r.classList.contains('expanded'));
-
-        rows.forEach(r => {
-            if (anyCollapsed) {
-                r.classList.add('expanded');
-            } else {
-                r.classList.remove('expanded');
-            }
-        });
-
-        updateToggleAllButtonState();
-    });
-}
-
-function updateToggleAllButtonState() {
-    const btn = document.getElementById('btnToggleAllTiers');
-    const textSpan = document.getElementById('btnToggleAllTiersText');
-    if (!btn || !textSpan) return;
-
-    const rows = document.querySelectorAll('.tier-item-row');
-    if (rows.length === 0) return;
-
-    const allExpanded = Array.from(rows).every(r => r.classList.contains('expanded'));
-    textSpan.textContent = allExpanded ? "Collapse All Details" : "Expand All (10 Comments)";
 }
 
 // Render Top Apps Table
@@ -1230,10 +1145,16 @@ function renderAppsTable(procs) {
 }
 
 // Fetch Historical Timeline
+let isFetchingTimeline = false;
 async function fetchTimeline(days) {
+    if (isFetchingTimeline) return;
+    isFetchingTimeline = true;
     try {
         const res = await fetch(`/api/timeline?days=${days}&points=50`);
         const data = await res.json();
         updateTimelineChart(data.timeline);
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+        isFetchingTimeline = false;
+    }
 }

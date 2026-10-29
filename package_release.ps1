@@ -34,6 +34,9 @@ $distDir = Join-Path $rootDir "dist\backend_service"
 Copy-Item -Path "$rootDir\MacRAMAdvisor.exe" -Destination "$distDir\MacRAMAdvisor.exe" -Force
 Copy-Item -Path "$rootDir\assets" -Destination "$distDir\assets" -Recurse -Force
 Copy-Item -Path "$rootDir\static" -Destination "$distDir\static" -Recurse -Force
+if (Test-Path "$distDir\_internal") {
+    Copy-Item -Path "$rootDir\static" -Destination "$distDir\_internal\static" -Recurse -Force
+}
 Copy-Item -Path "$rootDir\Enable_AutoStart_On_Boot.bat" -Destination "$distDir\Enable_AutoStart_On_Boot.bat" -Force
 Copy-Item -Path "$rootDir\Disable_AutoStart_On_Boot.bat" -Destination "$distDir\Disable_AutoStart_On_Boot.bat" -Force
 Copy-Item -Path "$rootDir\Start_Mac_RAM_Advisor.bat" -Destination "$distDir\Start_Mac_RAM_Advisor.bat" -Force
